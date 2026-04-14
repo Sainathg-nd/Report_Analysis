@@ -232,7 +232,34 @@ def parse_report(report_url: str) -> dict:
     for tc in test_cases:
         tc["service"] = _extract_service_name(tc.get("file_name", ""))
 
-    # Build summary
+    return _build_report(report_url, test_cases)
+
+
+def merge_reports(urls: list[str]) -> dict:
+    """
+    Fetch multiple report URLs and merge them into a single report.
+
+    Test cases from later URLs are added only if their TestId doesn't
+    already exist (first URL takes precedence for duplicates).
+    """
+    all_test_cases = []
+    seen_ids = set()
+
+    for url in urls:
+        js_text = fetch_report_js(url)
+        test_cases = _parse_test_data(js_text)
+        for tc in test_cases:
+            tc["service"] = _extract_service_name(tc.get("file_name", ""))
+            key = tc.get("TestId", tc.get("file_name", ""))
+            if key not in seen_ids:
+                seen_ids.add(key)
+                all_test_cases.append(tc)
+
+    return _build_report(", ".join(urls), all_test_cases)
+
+
+def _build_report(url: str, test_cases: list[dict]) -> dict:
+    """Build a report dict from a list of test cases."""
     total = len(test_cases)
     pass_count = sum(1 for tc in test_cases if tc.get("test_status") == "Pass")
     fail_count = sum(1 for tc in test_cases if tc.get("test_status") == "Fail")
@@ -248,7 +275,7 @@ def parse_report(report_url: str) -> dict:
         service_failures.setdefault(svc, []).append(tc)
 
     return {
-        "url": report_url,
+        "url": url,
         "test_cases": test_cases,
         "summary": {
             "total": total,

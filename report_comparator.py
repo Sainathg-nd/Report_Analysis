@@ -349,4 +349,60 @@ def _normalize_reason(reason: str) -> str:
     return normalized.strip()
 
 
+def compute_service_pass_rates(report: dict) -> dict:
+    """
+    Compute per-service pass rates from a parsed report.
+
+    Returns a dict mapping service name -> {
+        "total": int, "pass": int, "fail": int, "ne": int, "na": int,
+        "pass_rate": float,  # 0-100
+        "status": str,  # "pass" | "warn" | "fail" | "na"
+    }
+
+    Status thresholds:
+        pass_rate >= 90  -> "pass"  (checkmark)
+        pass_rate >= 85  -> "warn"  (exclamation)
+        pass_rate <  85  -> "fail"  (X)
+        na (no applicable tests) -> "na"
+    """
+    from collections import defaultdict
+
+    service_stats = defaultdict(lambda: {"total": 0, "pass": 0, "fail": 0, "ne": 0, "na": 0})
+
+    for tc in report["test_cases"]:
+        svc = tc.get("service", "UNKNOWN")
+        status = tc.get("test_status", "")
+        service_stats[svc]["total"] += 1
+        if status == "Pass":
+            service_stats[svc]["pass"] += 1
+        elif status == "Fail":
+            service_stats[svc]["fail"] += 1
+        elif status == "NE":
+            service_stats[svc]["ne"] += 1
+        elif status == "NA":
+            service_stats[svc]["na"] += 1
+
+    result = {}
+    for svc, stats in sorted(service_stats.items()):
+        applicable = stats["total"] - stats["na"]
+        if applicable <= 0:
+            pass_rate = 0.0
+            status_label = "na"
+        else:
+            pass_rate = (stats["pass"] / applicable) * 100
+            if pass_rate >= 90:
+                status_label = "pass"
+            elif pass_rate >= 85:
+                status_label = "warn"
+            else:
+                status_label = "fail"
+        result[svc] = {
+            **stats,
+            "pass_rate": round(pass_rate, 1),
+            "status": status_label,
+        }
+
+    return result
+
+
 import re
