@@ -1,0 +1,363 @@
+pipeline {
+    agent {   
+        label 'deviceqa-laptop'   
+    }
+    parameters {
+            booleanParam(name: 'enable_batch_01', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_01', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_01', defaultValue: 'AWSIOT,BAGHEERA,BAGHEERA-DISABLED-PRIVACY,BAGHEERA-ENHANCED-PRIVACY,DIAGNOSTIC,BAGHEERA-OFFDUTY-PRIVACY,BAGHEERA-REGULAR-PRIVACY,CIRCBUFF,CONNECTIONMANAGER,FANCONTROL,KEEP-ALIVE-MANAGER,HEALTHSTATSMANAGER,NDSUSPENDRESUME,NDSAM,APM', description: 'batch 01 services Eg. SVC,TIMESYNC .etc')
+
+            booleanParam(name: 'enable_batch_02', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_02', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_02', defaultValue: 'OTACHECK,SCHEDULER,POWER-MON,POWER-MON-CRANKLOW,POWER-MON-LPM,SERVICEMONITOR,SPEED,SVC,TIMESYNC,UNIFIEDUPLOADER,WIFI,EVENT-ACCESS-PREVIEW-CONFIG,EVENT-ACCESS-PREVIEW-PRIVACY,EVENT-ACCESS-PREVIEW-SESSION,EVENT-ACCESS-PREVIEW-NEGATIVE,AWSIOT-SDK', description: 'batch 02 services Eg. SVC,TIMESYNC .etc')
+
+            booleanParam(name: 'enable_batch_03', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_03', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_03', defaultValue: 'WIFI,BAGHEERA,BAGHEERA-DISABLED-PRIVACY,DIAGNOSTIC,OTACHECK,FANCONTROL', description: 'batch 03 services Eg. SVC,TIMESYNC .etc')
+            
+            booleanParam(name: 'enable_batch_04', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_04', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_04', defaultValue: 'BAGHEERA-ENHANCED-PRIVACY,BAGHEERA-OFFDUTY-PRIVACY,BAGHEERA-REGULAR-PRIVACY', description: 'batch 04 services Eg. SVC,TIMESYNC .etc')
+            
+            booleanParam(name: 'enable_batch_05', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_05', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_05', defaultValue: 'SERVICEMONITOR,CONNECTIONMANAGER,AWSIOT,SVC,NDSUSPENDRESUME,NDSAM', description: 'batch 05 services Eg. SVC,TIMESYNC .etc')
+            
+            booleanParam(name: 'enable_batch_06', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_06', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_06', defaultValue: 'SVC,NDSUSPENDRESUME,NDSAM', description: 'batch 06 services Eg. SVC,TIMESYNC .etc')
+            
+            booleanParam(name: 'enable_batch_07', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_07', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_07', defaultValue: 'DIAGNOSTIC,OTACHECK,FANCONTROL', description: 'batch 07 services Eg. SVC,TIMESYNC .etc')
+            
+            booleanParam(name: 'enable_batch_08', defaultValue: true, description: 'Enable Device Batch')
+            string(name: 'batch_08', defaultValue: '', description: 'device batch')
+            string(name: 'service_batch_08', defaultValue: 'SCHEDULER,POWER-MON,POWER-MON-CRANKLOW,POWER-MON-LPM', description: 'batch 08 services Eg. SVC,TIMESYNC .etc')
+
+            choice(name: 'testsuite', choices: ['6.10_Stable','6.12_Stable','6.14_Stable'], description: 'Select test suite -> [Stable | QA_Stable | All]')
+
+            string(name: 'port', defaultValue: '9756', description: 'Default port where we can see report')
+            string(name: 'branch', defaultValue: 'QA_6.10_20250612', description: 'Branch')
+
+            booleanParam(name: 'enable_report_analysis', defaultValue: true, description: 'Enable comparison analysis against previous build')
+            string(name: 'report_analysis_path', defaultValue: '/home/deviceqa/Report_Analysis', description: 'Static path to Report_Analysis scripts on the agent')
+            string(name: 'prev_build_number', defaultValue: '', description: 'Previous build number to compare against (leave empty for auto-detect)')
+        }
+    stages {
+        stage('Clone_ND_TEST_BOT') {
+            steps {
+                sh'''
+                    rm -rf $WORKSPACE/nd_test_bot/Test_Automation_Framework/Output/*
+                    rm -rf $WORKSPACE/nd_test_bot/Test_Automation_Framework/logAnalyser*
+                    rm -rf $WORKSPACE/nd_test_bot/*.tar.gz*/
+                '''
+                cleanWs (deleteDirs: true, patterns: [[pattern: '*_changelog.txt', type: 'INCLUDE'], [pattern: 'package_details.txt', type: 'INCLUDE']])
+
+                checkout poll: false, scm: [$class: 'GitSCM',
+                    branches: [[name: params.branch]],
+                    extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: 'nd_test_bot'], [$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                    userRemoteConfigs: [[url: 'https://github.com/netradyne/nd_test_bot.git', credentialsId: 'GitHub_token_Shakthivels-nd']]]
+            }
+        }
+        stage('DUT_Setup') {
+            steps {
+                script {
+                    def device_batch_01 = []
+                    def service_batch_01 = [:]
+                    def device_batch_02 = []
+                    def service_batch_02 = [:]
+                    def device_batch_03 = []
+                    def service_batch_03 = [:]
+                    def device_batch_04 = []
+                    def service_batch_04 = [:]
+                    def device_batch_05 = []
+                    def service_batch_05 = [:]
+                    def device_batch_06 = []
+                    def service_batch_06 = [:]
+                    def device_batch_07 = []
+                    def service_batch_07 = [:]
+                    def device_batch_08 = []
+                    def service_batch_08 = [:]
+
+                    // if (!params.enable_batch_01 && !params.enable_batch_02) {
+                    //     error "Deivce list not provided"
+                    // }
+
+                    if (params.enable_batch_01 && params.batch_01?.trim()) {
+                    device_batch_01 = params.batch_01.split(",")
+                    echo "${device_batch_01}"
+                    for (device in device_batch_01) {
+
+                        service_batch_01[device] = params.service_batch_01.split(",")
+                    }
+                    echo "${service_batch_01}"
+                    }
+
+
+                    if (params.enable_batch_02 && params.batch_02?.trim()) {
+                        device_batch_02 = params.batch_02.split(",")
+                        echo "${device_batch_02}"
+                        for (device in device_batch_02) {
+                            service_batch_02[device] = params.service_batch_02.split(",")
+                        }
+                        echo "${service_batch_02}"
+                    }
+
+                    if (params.enable_batch_03 && params.batch_03?.trim()) {
+                        device_batch_03 = params.batch_03.split(",")
+                        echo "${device_batch_03}"
+                        for (device in device_batch_03) {
+                            service_batch_03[device] = params.service_batch_03.split(",")
+                        }
+                        echo "${service_batch_03}"
+                    }
+
+                    if (params.enable_batch_04 && params.batch_04?.trim()) {
+                        device_batch_04 = params.batch_04.split(",")
+                        echo "${device_batch_04}"
+                        for (device in device_batch_04) {
+                            service_batch_04[device] = params.service_batch_04.split(",")
+                        }
+                        echo "${service_batch_04}"
+                    }
+                    
+                    if (params.enable_batch_05 && params.batch_05?.trim()) {
+                        device_batch_05 = params.batch_05.split(",")
+                        echo "${device_batch_05}"
+                        for (device in device_batch_05) {
+                            service_batch_05[device] = params.service_batch_05.split(",")
+                        }
+                        echo "${service_batch_05}"
+                    }
+                    
+                    if (params.enable_batch_06 && params.batch_06?.trim()) {
+                        device_batch_06 = params.batch_06.split(",")
+                        echo "${device_batch_06}"
+                        for (device in device_batch_06) {
+                            service_batch_06[device] = params.service_batch_06.split(",")
+                        }
+                        echo "${service_batch_06}"
+                    }
+                    
+                    if (params.enable_batch_07 && params.batch_07?.trim()) {
+                        device_batch_07 = params.batch_07.split(",")
+                        echo "${device_batch_07}"
+                        for (device in device_batch_07) {
+                            service_batch_07[device] = params.service_batch_07.split(",")
+                        }
+                        echo "${service_batch_07}"
+                    }
+                    
+                    if (params.enable_batch_08 && params.batch_08?.trim()) {
+                        device_batch_08 = params.batch_08.split(",")
+                        echo "${device_batch_08}"
+                        for (device in device_batch_08) {
+                            service_batch_08[device] = params.service_batch_08.split(",")
+                        }
+                        echo "${service_batch_08}"
+                    }
+
+
+                    def device_list = []
+                    def segmented_service = [:]
+                    def resultDict = [:]
+
+                    device_list.addAll(device_batch_01)
+                    device_list.addAll(device_batch_02)
+                    device_list.addAll(device_batch_03)
+                    device_list.addAll(device_batch_04)
+                    device_list.addAll(device_batch_05)
+                    device_list.addAll(device_batch_06)
+                    device_list.addAll(device_batch_07)
+                    device_list.addAll(device_batch_08)
+
+                    segmented_service.putAll(service_batch_01)
+                    segmented_service.putAll(service_batch_02)
+                    segmented_service.putAll(service_batch_03)
+                    segmented_service.putAll(service_batch_04)
+                    segmented_service.putAll(service_batch_05)
+                    segmented_service.putAll(service_batch_06)
+                    segmented_service.putAll(service_batch_07)
+                    segmented_service.putAll(service_batch_08)
+
+                    echo "${device_list}"
+                    echo "${segmented_service}"
+
+                    resultDict["device_ids"] = device_list
+                    resultDict["segmented_services"] = segmented_service
+                    def json = groovy.json.JsonOutput.toJson(resultDict)
+                    // // Write the JSON object to a file named parameter.json
+                    writeFile file: "${env.WORKSPACE}/nd_test_bot/Test_Automation_Framework/src/parameters/parameters.json", text: json
+                    // Now you have a single JSON object with all the device ids written to parameter.json
+                    println('Written to parameter.json')
+                }
+            }
+        }
+        stage('Run_Test_Cases') {
+            steps {
+                sh '''
+                    source /home/deviceqa/DTA_venv/nd_test_bot_env/bin/activate
+                    cd $WORKSPACE/nd_test_bot/
+                    python3 Test_Automation_Framework/qa_utils/generate_testsuite.py -t ${testsuite}
+                    cd $WORKSPACE/nd_test_bot/Test_Automation_Framework/src
+                    python3 main.py -l --port ${port}
+                    cd $WORKSPACE/nd_test_bot/Test_Automation_Framework/Output/report/127.0.0.1:${port}/
+                    tar -czf report.tar.gz *
+                    cd $WORKSPACE/nd_test_bot/Test_Automation_Framework/Output/
+                    tar -czf output.tar.gz *
+                    cd $WORKSPACE/nd_test_bot/Test_Automation_Framework/
+                    tar -czf logAnalyzer.tar.gz logAnalyserResult*
+                    cp $WORKSPACE/nd_test_bot/Test_Automation_Framework/Output/report/127.0.0.1:${port}/index.html $WORKSPACE/
+                    cp $WORKSPACE/nd_test_bot/Test_Automation_Framework/Interface/templates/jenkins.html $WORKSPACE/
+                '''
+            }
+        }
+        stage('Publish_Test_Report') {
+            steps {
+                publishHTML(target: [
+                    allowMissing: false,
+                    alwaysLinkToLastBuild: false,
+                    keepAll: true,
+                    reportDir: "nd_test_bot/Test_Automation_Framework/Output/report/127.0.0.1:${port}/",
+                    reportFiles: 'index.html',
+                    reportName: 'Test_report',
+                    reportTitles: 'Test_report'
+                ])
+            }
+        }
+        stage('Report_Analysis') {
+            when {
+                expression { return params.enable_report_analysis }
+            }
+            steps {
+                script {
+                    def reportAnalysis = load "${params.report_analysis_path}/report_analysis_stages.groovy"
+                    reportAnalysis.run(
+                        port: params.port,
+                        branch: params.branch,
+                        reportAnalysisPath: params.report_analysis_path,
+                        prevBuildNumber: params.prev_build_number
+                    )
+                }
+            }
+        }
+    }
+    post {
+        success {
+            archiveArtifacts artifacts: '**/report.tar.gz,**/output.tar.gz,**/logAnalyzer.tar.gz', followSymlinks: false, onlyIfSuccessful: true
+            script {
+                def reportUrl = "${env.BUILD_URL}" 
+                def build_status = currentBuild.currentResult ?: 'SUCCESS'
+                def buildDate = new java.text.SimpleDateFormat("yyyy/MM/dd").format(new Date(currentBuild.startTimeInMillis))
+                sh '''
+                    source /home/deviceqa/DTA_venv/nd_test_bot_env/bin/activate
+                    python3 $WORKSPACE/nd_test_bot/Test_Automation_Framework/Interface/device_info.py $WORKSPACE
+                '''
+                // Send email  
+                emailext (  
+                    subject: "Device Automation - BGR3_Mainline_QA_Phase_Validation_Setup_9154 - Test Report - ${build_status} - ${buildDate}",  
+                    body: """
+                     <!DOCTYPE html>    
+                    <html lang="en">
+                    <head>
+                        <style>    
+                            .Test_Info {      
+                                width: 100%;      
+                                margin-top: 30px;      
+                                margin-bottom: 30px;      
+                                border-collapse: collapse;      
+                                border: 2px solid #140f0f;      
+                                box-shadow: 0 10px 10px rgba(0, 0, 0, 0.2);       
+                            }      
+                            .Test_Info th {      
+                                background-color:rgb(23 33 109 / 78%);     
+                                color: white;    
+                                font-weight: bold;      
+                                padding: 10px;      
+                                border: 1.5px solid #4b4b4b;      
+                                text-align: center;      
+                            }      
+                            .Test_Info td {      
+                                padding: 10px;      
+                                border: 1.5px solid #464343;      
+                                text-align: left;      
+                            }
+                            .service_level_info {      
+                                width: 100%;      
+                                margin-top: 30px;      
+                                margin-bottom: 30px;      
+                                border-collapse: collapse;      
+                                border: 2px solid #140f0f;      
+                                box-shadow: 0 10px 10px rgba(0, 0, 0, 0.2);       
+                            }      
+                            .service_level_info th {      
+                                background-color:rgb(23 33 109 / 78%);     
+                                color: white;    
+                                font-weight: bold;      
+                                padding: 10px;      
+                                border: 1.5px solid #4b4b4b;      
+                                text-align: center;      
+                            }      
+                            .service_level_info td {      
+                                padding: 10px;      
+                                border: 1.5px solid #464343;      
+                                text-align: left;      
+                            }
+                            
+                        </style>    
+                    </head>
+                    <body>   
+                        <p>Hi All,</p>  
+                        <p>Please find the Test Report from ${branch}</p>
+
+                        <h1>Overall Test Execution Summary</h1>
+                        ${readFile("$WORKSPACE/overall_summary.txt")}
+                        <h1>Service Level Test Execution Summary</h1>
+                        ${readFile("$WORKSPACE/service_level_summary.txt")}
+
+                        <p>Test report details available at <a href='${reportUrl}Test_5freport/'>Test_Automation_Report</a></p>  
+                        <p>Report comparison available at <a href='${reportUrl}Report_5fComparison/'>Report_Comparison</a></p>
+                        <p>Jenkins console output details available at <a href='${reportUrl}'>Jenkins Console Output</a></p>
+                        <p>Regards,</p>
+                        <p>Device-QA.</p>
+                    </body>    
+                    </html> 
+                    """,  
+                    
+                    to: 'DeviceQA-Automation@netradyne.com', 
+                    mimeType: 'text/html',
+                    // attachmentsPattern: '**/report.tar.gz'
+                )  
+            }  
+        }
+        failure {
+            script {  
+                def reportUrl = "${env.BUILD_URL}" 
+                def build_status = currentBuild.currentResult
+                def buildDate = new java.text.SimpleDateFormat("yyyy/MM/dd").format(new Date(currentBuild.startTimeInMillis))
+                // Send email  
+                emailext (  
+                    subject: "Device Automation - BGR3_Mainline_QA_Phase_Validation_Setup_9154 - Test Report - ${build_status} - ${buildDate}",  
+                    body: """
+                    <!DOCTYPE html>    
+                    <html lang="en">  
+                    <body>   
+                        <p>Hi All,</p>  
+                        <p>Build for Automation Test Report from ${branch} has failed</p>  
+
+                        <p>Jenkins console output details available at <a href='${env.BUILD_URL}'>Jenkins Console Output</a></p>  
+                        <br>
+                        <p>Regards,</p>
+                        <p>Device-QA.</p>
+                    
+                    </body>    
+                    </html> 
+                    """,
+                    to: 'bharath.kumar@netradyne.com,jayasimha.sathyanarayana@netradyne.com,karthik.nair@netradyne.com,joseph.pushpa@netradyne.com,aayushee.gujarathi@netradyne.com',  
+                    mimeType: 'text/html'
+                )  
+            }  
+        }
+    }
+}
