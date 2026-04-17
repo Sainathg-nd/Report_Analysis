@@ -12,8 +12,16 @@
  *        string(name: 'report_analysis_path', defaultValue: '/home/deviceqa/Report_Analysis', description: 'Static path to Report_Analysis scripts on the agent')
  *        string(name: 'prev_build_number', defaultValue: '', description: 'Previous build number to compare against (leave empty for auto-detect)')
  *
- *   2) Add a single stage after Publish_Test_Report:
+ *   2) Capture SCM info after checkout and add a single stage:
  *
+ *        // In Clone stage, capture checkout return value:
+ *        script {
+ *            def scmVars = checkout poll: false, scm: [...]
+ *            env.ND_GIT_COMMIT = scmVars.GIT_COMMIT ?: ''
+ *            env.ND_GIT_PREVIOUS_COMMIT = scmVars.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''
+ *        }
+ *
+ *        // After Publish_Test_Report, add:
  *        stage('Report_Analysis') {
  *            when {
  *                expression { return params.enable_report_analysis }
@@ -25,7 +33,9 @@
  *                        port: params.port,
  *                        branch: params.branch,
  *                        reportAnalysisPath: params.report_analysis_path,
- *                        prevBuildNumber: params.prev_build_number
+ *                        prevBuildNumber: params.prev_build_number,
+ *                        currCommit: env.ND_GIT_COMMIT ?: '',
+ *                        prevCommit: env.ND_GIT_PREVIOUS_COMMIT ?: ''
  *                    )
  *                }
  *            }
@@ -44,6 +54,8 @@ def run(Map config) {
     def branch = config.branch
     def reportAnalysisPath = config.reportAnalysisPath ?: '/home/deviceqa/Report_Analysis'
     def prevBuildNumber = config.prevBuildNumber ?: ''
+    def currCommit = config.currCommit ?: ''
+    def prevCommit = config.prevCommit ?: ''
 
     // ── Stage 1: Run Report Analysis ──────────────────────────────────
     stage('Run_Report_Analysis') {
@@ -69,6 +81,10 @@ def run(Map config) {
         echo "Current build: #${env.BUILD_NUMBER}"
         env.CURRENT_REPORT_URL = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/Test_5freport/"
 
+        // Set commit env vars for the shell block
+        env.ND_CURR_COMMIT = currCommit ?: ''
+        env.ND_PREV_COMMIT = prevCommit ?: ''
+
         sh '''
             if [ "${SKIP_ANALYSIS}" = "true" ]; then
                 echo "Skipping report analysis - no previous build"
@@ -77,9 +93,9 @@ def run(Map config) {
 
             mkdir -p ${REPORT_OUTPUT_DIR}
 
-            # Generate git diff JSON using GIT_PREVIOUS_SUCCESSFUL_COMMIT (set by Jenkins Git plugin)
-            PREV_COMMIT="${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-}"
-            CURR_COMMIT="${GIT_COMMIT:-HEAD}"
+            # Generate git diff JSON using commits captured from SCM checkout
+            PREV_COMMIT="${ND_PREV_COMMIT:-}"
+            CURR_COMMIT="${ND_CURR_COMMIT:-HEAD}"
             GIT_DIFF_ARG=""
 
             if [ -z "$PREV_COMMIT" ]; then

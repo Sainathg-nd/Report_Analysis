@@ -54,10 +54,16 @@ pipeline {
                 '''
                 cleanWs (deleteDirs: true, patterns: [[pattern: '*_changelog.txt', type: 'INCLUDE'], [pattern: 'package_details.txt', type: 'INCLUDE']])
 
-                checkout poll: false, scm: [$class: 'GitSCM',
-                    branches: [[name: params.branch]],
-                    extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: 'nd_test_bot'], [$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
-                    userRemoteConfigs: [[url: 'https://github.com/netradyne/nd_test_bot.git', credentialsId: 'GitHub_token_Shakthivels-nd']]]
+                script {
+                    def scmVars = checkout poll: false, scm: [$class: 'GitSCM',
+                        branches: [[name: params.branch]],
+                        extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: 'nd_test_bot'], [$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                        userRemoteConfigs: [[url: 'https://github.com/netradyne/nd_test_bot.git', credentialsId: 'GitHub_token_Shakthivels-nd']]]
+                    env.ND_GIT_COMMIT = scmVars.GIT_COMMIT ?: ''
+                    env.ND_GIT_PREVIOUS_COMMIT = scmVars.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''
+                    echo "Current commit: ${env.ND_GIT_COMMIT}"
+                    echo "Previous successful commit: ${env.ND_GIT_PREVIOUS_COMMIT}"
+                }
             }
         }
         stage('DUT_Setup') {
@@ -237,7 +243,9 @@ pipeline {
                         port: params.port,
                         branch: params.branch,
                         reportAnalysisPath: params.report_analysis_path,
-                        prevBuildNumber: params.prev_build_number
+                        prevBuildNumber: params.prev_build_number,
+                        currCommit: env.ND_GIT_COMMIT ?: '',
+                        prevCommit: env.ND_GIT_PREVIOUS_COMMIT ?: ''
                     )
                 }
             }
