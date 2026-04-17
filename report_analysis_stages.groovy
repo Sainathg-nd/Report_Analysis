@@ -78,9 +78,9 @@ def run(Map config) {
 
             mkdir -p \${REPORT_OUTPUT_DIR}
             source /home/deviceqa/DTA_venv/nd_test_bot_env/bin/activate
-            pip install -r \${REPORT_ANALYSIS_PATH}/requirements.txt
+            pip install -r ${reportAnalysisPath}/requirements.txt
 
-            cd \${REPORT_ANALYSIS_PATH}
+            cd ${reportAnalysisPath}
             python3 analyze.py \\
                 --previous "\${PREVIOUS_REPORT_URL}" \\
                 --current "\${CURRENT_REPORT_URL}" \\
