@@ -106,6 +106,9 @@ def run(Map config) {
                 echo "Git diff: $PREV_COMMIT -> $CURR_COMMIT"
                 cd ${WORKSPACE}/nd_test_bot
 
+                # Fetch all branches so previous commit is available even across branches
+                git fetch --all --quiet 2>/dev/null || true
+
                 python3 -c "
 import json, subprocess, sys
 

@@ -38,7 +38,7 @@ pipeline {
             choice(name: 'testsuite', choices: ['6.10_Stable','6.12_Stable','6.14_Stable'], description: 'Select test suite -> [Stable | QA_Stable | All]')
 
             string(name: 'port', defaultValue: '9756', description: 'Default port where we can see report')
-            string(name: 'branch', defaultValue: 'QA_6.10_20250612', description: 'Branch')
+            string(name: 'branch', defaultValue: '', description: 'Branch')
 
             booleanParam(name: 'enable_report_analysis', defaultValue: true, description: 'Enable comparison analysis against previous build')
             string(name: 'report_analysis_path', defaultValue: '/home/deviceqa/Report_Analysis', description: 'Static path to Report_Analysis scripts on the agent')
@@ -55,14 +55,22 @@ pipeline {
                 cleanWs (deleteDirs: true, patterns: [[pattern: '*_changelog.txt', type: 'INCLUDE'], [pattern: 'package_details.txt', type: 'INCLUDE']])
 
                 script {
-                    def scmVars = checkout poll: false, scm: [$class: 'GitSCM',
+                    checkout poll: false, scm: [$class: 'GitSCM',
                         branches: [[name: params.branch]],
                         extensions: [[$class: 'RelativeTargetDirectory', relativeTargetDir: 'nd_test_bot'], [$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
                         userRemoteConfigs: [[url: 'https://github.com/netradyne/nd_test_bot.git', credentialsId: 'GitHub_token_Shakthivels-nd']]]
-                    env.ND_GIT_COMMIT = scmVars.GIT_COMMIT ?: ''
-                    env.ND_GIT_PREVIOUS_COMMIT = scmVars.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''
+                    // Get current commit hash directly from git
+                    env.ND_GIT_COMMIT = sh(script: 'cd ${WORKSPACE}/nd_test_bot && git rev-parse HEAD', returnStdout: true).trim()
+                    // Store commit in build description so future builds can read it
+                    currentBuild.description = "commit:${env.ND_GIT_COMMIT}"
+                    // Read previous build's commit from its description
+                    def prevBuild = currentBuild.previousSuccessfulBuild
+                    env.ND_GIT_PREVIOUS_COMMIT = ''
+                    if (prevBuild?.description?.startsWith('commit:')) {
+                        env.ND_GIT_PREVIOUS_COMMIT = prevBuild.description.replace('commit:', '')
+                    }
                     echo "Current commit: ${env.ND_GIT_COMMIT}"
-                    echo "Previous successful commit: ${env.ND_GIT_PREVIOUS_COMMIT}"
+                    echo "Previous build commit: ${env.ND_GIT_PREVIOUS_COMMIT}"
                 }
             }
         }
