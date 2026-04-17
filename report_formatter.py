@@ -210,6 +210,7 @@ def generate_html_report(
     prev_version: str,
     curr_version: str,
     output_path: str = "comparison_report.html",
+    git_diff_data: dict = None,
 ):
     """Generate an HTML comparison report."""
     s = comparison["summary"]
@@ -485,6 +486,7 @@ def generate_html_report(
                     <span>&#9679; <strong style="color:#6a1b9a;">Known ({s.get('new_known_failure_count',0)})</strong> &mdash; Linked to Jira, already tracked</span>
                 </div>
             </div>
+            {_build_git_diff_html(git_diff_data)}
         </div>
 
         <!-- ============ NEW UNKNOWN FAILURES - BY REASON ============ -->
@@ -634,7 +636,8 @@ def generate_html_report(
 
 def export_json(comparison: dict, output_path: str = "comparison_report.json",
                 prev_report: dict = None, curr_report: dict = None,
-                prev_version: str = "", curr_version: str = ""):
+                prev_version: str = "", curr_version: str = "",
+                git_diff_data: dict = None):
     """Export comparison results as JSON, including report summaries for regeneration."""
     data = dict(comparison)
     if prev_report:
@@ -645,12 +648,62 @@ def export_json(comparison: dict, output_path: str = "comparison_report.json",
         data["prev_version"] = prev_version
     if curr_version:
         data["curr_version"] = curr_version
+    if git_diff_data:
+        data["git_diff"] = git_diff_data
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, default=str)
     print(f"JSON report saved to: {os.path.abspath(output_path)}")
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def _build_git_diff_html(git_diff_data: dict | None) -> str:
+    """Build an HTML section showing TC file changes between builds."""
+    if not git_diff_data:
+        return ''
+
+    added = git_diff_data.get('tc_files_added', 0)
+    modified = git_diff_data.get('tc_files_modified', 0)
+    added_files = git_diff_data.get('added_files', [])
+    modified_files = git_diff_data.get('modified_files', [])
+    prev_commit = git_diff_data.get('prev_commit', '?')[:10]
+    curr_commit = git_diff_data.get('curr_commit', '?')[:10]
+
+    added_rows = ''
+    for f in added_files:
+        added_rows += f'<tr><td>{_html_escape(f)}</td><td><span class="badge" style="background:#e8f5e9;color:#2e7d32;">Added</span></td></tr>'
+
+    modified_rows = ''
+    for f in modified_files:
+        modified_rows += f'<tr><td>{_html_escape(f)}</td><td><span class="badge" style="background:#fff8e1;color:#f57f17;">Modified</span></td></tr>'
+
+    file_table = ''
+    if added_files or modified_files:
+        file_table = f'''
+            <details class="detail-card" style="margin-top:10px;">
+                <summary style="cursor:pointer;font-weight:500;">View changed TC files ({added + modified} total)</summary>
+                <table style="margin-top:8px;">
+                    <thead><tr><th>File Path</th><th style="width:100px">Change</th></tr></thead>
+                    <tbody>{added_rows}{modified_rows}</tbody>
+                </table>
+            </details>'''
+
+    return f'''
+            <div style="margin-top:20px;">
+                <h3 style="font-size:14px;color:#333;margin-bottom:10px;">Code Changes Between Builds</h3>
+                <p style="font-size:12px;color:#666;margin-bottom:10px;">{prev_commit} &rarr; {curr_commit}</p>
+                <div style="display:flex;gap:20px;">
+                    <div class="stat-box" style="border-left-color:#2e7d32;flex:1;">
+                        <div class="number" style="color:#2e7d32;">{added}</div>
+                        <div class="label">TC Files Added</div>
+                    </div>
+                    <div class="stat-box" style="border-left-color:#f57f17;flex:1;">
+                        <div class="number" style="color:#f57f17;">{modified}</div>
+                        <div class="label">TC Files Modified</div>
+                    </div>
+                </div>
+                {file_table}
+            </div>'''
 
 def _html_escape(text: str) -> str:
     """Escape HTML special characters."""

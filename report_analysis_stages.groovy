@@ -70,6 +70,30 @@ def run(Map config) {
         echo "Current build: #${env.BUILD_NUMBER}"
         env.CURRENT_REPORT_URL = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/Test_5freport/"
 
+        // Get the commit from the previous successful build for git diff
+        def prevCommit = ''
+        def prevBuild2 = currentBuild.previousSuccessfulBuild
+        if (prevBuild2) {
+            prevCommit = prevBuild2.buildVariables?.get('GIT_COMMIT') ?: ''
+            if (!prevCommit?.trim()) {
+                try {
+                    prevCommit = prevBuild2.rawBuild?.getEnvironment(hudson.model.TaskListener.NULL)?.get('GIT_COMMIT') ?: ''
+                } catch (e) {
+                    echo "Could not retrieve previous build commit: ${e.message}"
+                }
+            }
+        }
+
+        def gitDiffArg = ''
+        if (prevCommit?.trim()) {
+            echo "Previous build commit: ${prevCommit}"
+            echo "Current build commit:  ${env.GIT_COMMIT}"
+            env.PREV_COMMIT = prevCommit
+            gitDiffArg = "--git-diff-json \${REPORT_OUTPUT_DIR}/git_diff.json"
+        } else {
+            echo "No previous build commit found, skipping git diff"
+        }
+
         sh """
             if [ "\${SKIP_ANALYSIS}" = "true" ]; then
                 echo "Skipping report analysis - no previous build"
@@ -77,6 +101,35 @@ def run(Map config) {
             fi
 
             mkdir -p \${REPORT_OUTPUT_DIR}
+
+            # Generate git diff JSON if previous commit is available
+            if [ -n "${prevCommit}" ]; then
+                cd \${WORKSPACE}/nd_test_bot
+
+                ADDED_FILES=\$(git diff --diff-filter=A --name-only ${prevCommit}..HEAD | grep '/TC\\|^TC' || true)
+                MODIFIED_FILES=\$(git diff --diff-filter=M --name-only ${prevCommit}..HEAD | grep '/TC\\|^TC' || true)
+                TC_ADDED=\$(echo "\$ADDED_FILES" | grep -c '.' || echo 0)
+                TC_MODIFIED=\$(echo "\$MODIFIED_FILES" | grep -c '.' || echo 0)
+
+                # Build JSON using python for safe serialization
+                python3 -c "
+import json, sys
+added = [f for f in '''\\${ADDED_FILES}'''.strip().splitlines() if f.strip()]
+modified = [f for f in '''\\${MODIFIED_FILES}'''.strip().splitlines() if f.strip()]
+data = {
+    'prev_commit': '${prevCommit}',
+    'curr_commit': '\${GIT_COMMIT:-HEAD}',
+    'tc_files_added': len(added),
+    'tc_files_modified': len(modified),
+    'added_files': added,
+    'modified_files': modified
+}
+with open('\${REPORT_OUTPUT_DIR}/git_diff.json', 'w') as f:
+    json.dump(data, f, indent=2)
+print('Git diff JSON generated')
+"
+            fi
+
             source /home/deviceqa/DTA_venv/nd_test_bot_env/bin/activate
             pip install -r ${reportAnalysisPath}/requirements.txt
 
@@ -85,61 +138,23 @@ def run(Map config) {
                 --previous "\${PREVIOUS_REPORT_URL}" \\
                 --current "\${CURRENT_REPORT_URL}" \\
                 --output-html "\${REPORT_OUTPUT_DIR}/comparison_report.html" \\
-                --output-json "\${REPORT_OUTPUT_DIR}/comparison_report.json"
+                --output-json "\${REPORT_OUTPUT_DIR}/comparison_report.json" \\
+                ${prevCommit?.trim() ? '--git-diff-json "\${REPORT_OUTPUT_DIR}/git_diff.json"' : ''}
         """
     }
 
     if (env.SKIP_ANALYSIS == 'true') {
-        echo "Skipping git diff, packaging, and publishing - no previous build"
+        echo "Skipping packaging and publishing - no previous build"
         return
     }
 
-    // ── Stage 2: Generate Git Diff ────────────────────────────────────
-    stage('Generate_Git_Diff') {
-        def prevBuild = currentBuild.previousSuccessfulBuild
-        if (prevBuild) {
-            env.PREV_BRANCH = prevBuild.getBuildVariables()['branch'] ?: ''
-        }
-        if (!env.PREV_BRANCH?.trim()) {
-            env.PREV_BRANCH = branch
-        }
-        echo "Previous build branch: ${env.PREV_BRANCH}"
-        echo "Current build branch:  ${branch}"
-
-        sh """
-            mkdir -p \${REPORT_OUTPUT_DIR}
-            cd \${WORKSPACE}/nd_test_bot
-
-            git fetch origin "\${PREV_BRANCH}" --no-tags 2>/dev/null || true
-
-            echo "=== Git Diff: \${PREV_BRANCH} -> ${branch} ===" | tee \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-            echo "" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-
-            echo "--- Diff Summary ---" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-            git --no-pager diff --stat "origin/\${PREV_BRANCH}...HEAD" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt 2>/dev/null || \\
-                echo "Could not compute diff stat" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-            echo "" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-
-            echo "--- Commits ---" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-            git --no-pager log --oneline --no-merges "origin/\${PREV_BRANCH}...HEAD" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt 2>/dev/null || \\
-                echo "Could not compute commit log" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-            echo "" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-
-            echo "--- Full Diff ---" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-            git --no-pager diff "origin/\${PREV_BRANCH}...HEAD" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt 2>/dev/null || \\
-                echo "Could not compute full diff" >> \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-
-            echo "=== Git diff report generated ==="
-            head -50 \${REPORT_OUTPUT_DIR}/git_diff_report.txt
-        """
-    }
-
-    // ── Stage 3: Package, Archive & Publish ───────────────────────────
+    // ── Stage 2: Package, Archive & Publish ───────────────────────────
     stage('Package_and_Publish_Analysis') {
         sh """
             cd \${REPORT_OUTPUT_DIR}
             tar -czf \${WORKSPACE}/report_analysis_output.tar.gz \\
-                comparison_report.html comparison_report.json git_diff_report.txt
+                comparison_report.html comparison_report.json \\
+                \$([ -f git_diff.json ] && echo git_diff.json || true)
         """
 
         archiveArtifacts artifacts: 'report_analysis_output.tar.gz', allowEmptyArchive: true

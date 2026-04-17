@@ -59,7 +59,23 @@ def main():
         "--output-json",
         help="Path for JSON export (optional)",
     )
+    parser.add_argument(
+        "--git-diff-json",
+        help="Path to a JSON file with TC file change info from git diff (optional)",
+    )
     args = parser.parse_args()
+
+    # Load git diff data if provided
+    git_diff_data = None
+    if args.git_diff_json:
+        try:
+            import json as _json
+            with open(args.git_diff_json, "r") as _f:
+                git_diff_data = _json.load(_f)
+            print(f"Loaded git diff data: {git_diff_data.get('tc_files_added', 0)} TC files added, "
+                  f"{git_diff_data.get('tc_files_modified', 0)} TC files modified")
+        except Exception as e:
+            print(f"Warning: Could not load git diff JSON: {e}", file=sys.stderr)
 
     # Step 1: Fetch and parse both reports
     print(f"Fetching previous report: {args.previous}")
@@ -93,13 +109,15 @@ def main():
         comparison, prev_report, curr_report,
         args.prev_version, args.curr_version,
         args.output_html,
+        git_diff_data=git_diff_data,
     )
 
     # Step 5: Optional JSON export
     if args.output_json:
         export_json(comparison, args.output_json,
                     prev_report, curr_report,
-                    args.prev_version, args.curr_version)
+                    args.prev_version, args.curr_version,
+                    git_diff_data=git_diff_data)
 
 
 if __name__ == "__main__":
