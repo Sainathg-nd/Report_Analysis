@@ -63,84 +63,77 @@ def run(Map config) {
         env.CURRENT_REPORT_DIR = "${env.WORKSPACE}/nd_test_bot/Test_Automation_Framework/Output/report/127.0.0.1:${port}"
         env.PREVIOUS_REPORT_URL = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.PREV_BUILD_NUM}/Test_5freport/"
         env.REPORT_OUTPUT_DIR = "${env.WORKSPACE}/report_analysis_output"
-        env.REPORT_ANALYSIS_PATH = reportAnalysisPath
 
         echo "Previous build: #${env.PREV_BUILD_NUM}"
         echo "Previous report URL: ${env.PREVIOUS_REPORT_URL}"
         echo "Current build: #${env.BUILD_NUMBER}"
         env.CURRENT_REPORT_URL = "${env.JENKINS_URL}job/${env.JOB_NAME}/${env.BUILD_NUMBER}/Test_5freport/"
 
-        // Get the commit from the previous successful build for git diff
-        def prevCommit = ''
-        def prevBuild2 = currentBuild.previousSuccessfulBuild
-        if (prevBuild2) {
-            prevCommit = prevBuild2.buildVariables?.get('GIT_COMMIT') ?: ''
-            if (!prevCommit?.trim()) {
-                try {
-                    prevCommit = prevBuild2.rawBuild?.getEnvironment(hudson.model.TaskListener.NULL)?.get('GIT_COMMIT') ?: ''
-                } catch (e) {
-                    echo "Could not retrieve previous build commit: ${e.message}"
-                }
-            }
-        }
-
-        def gitDiffArg = ''
-        if (prevCommit?.trim()) {
-            echo "Previous build commit: ${prevCommit}"
-            echo "Current build commit:  ${env.GIT_COMMIT}"
-            env.PREV_COMMIT = prevCommit
-            gitDiffArg = "--git-diff-json \${REPORT_OUTPUT_DIR}/git_diff.json"
-        } else {
-            echo "No previous build commit found, skipping git diff"
-        }
-
-        sh """
-            if [ "\${SKIP_ANALYSIS}" = "true" ]; then
+        sh '''
+            if [ "${SKIP_ANALYSIS}" = "true" ]; then
                 echo "Skipping report analysis - no previous build"
                 exit 0
             fi
 
-            mkdir -p \${REPORT_OUTPUT_DIR}
+            mkdir -p ${REPORT_OUTPUT_DIR}
 
-            # Generate git diff JSON if previous commit is available
-            if [ -n "${prevCommit}" ]; then
-                cd \${WORKSPACE}/nd_test_bot
+            # Generate git diff JSON using GIT_PREVIOUS_SUCCESSFUL_COMMIT (set by Jenkins Git plugin)
+            PREV_COMMIT="${GIT_PREVIOUS_SUCCESSFUL_COMMIT:-}"
+            CURR_COMMIT="${GIT_COMMIT:-HEAD}"
+            GIT_DIFF_ARG=""
 
-                ADDED_FILES=\$(git diff --diff-filter=A --name-only ${prevCommit}..HEAD | grep '/TC\\|^TC' || true)
-                MODIFIED_FILES=\$(git diff --diff-filter=M --name-only ${prevCommit}..HEAD | grep '/TC\\|^TC' || true)
-                TC_ADDED=\$(echo "\$ADDED_FILES" | grep -c '.' || echo 0)
-                TC_MODIFIED=\$(echo "\$MODIFIED_FILES" | grep -c '.' || echo 0)
+            if [ -z "$PREV_COMMIT" ]; then
+                echo "No previous successful commit found, skipping git diff"
+            elif [ "$PREV_COMMIT" = "$CURR_COMMIT" ]; then
+                echo "Same commit ($CURR_COMMIT), skipping git diff"
+            else
+                echo "Git diff: $PREV_COMMIT -> $CURR_COMMIT"
+                cd ${WORKSPACE}/nd_test_bot
 
-                # Build JSON using python for safe serialization
                 python3 -c "
-import json, sys
-added = [f for f in '''\\${ADDED_FILES}'''.strip().splitlines() if f.strip()]
-modified = [f for f in '''\\${MODIFIED_FILES}'''.strip().splitlines() if f.strip()]
+import json, subprocess, sys
+
+prev_commit = sys.argv[1]
+curr_commit = sys.argv[2]
+output_path = sys.argv[3]
+
+def get_tc_files(diff_filter):
+    result = subprocess.run(
+        ['git', 'diff', '--diff-filter=' + diff_filter, '--name-only', prev_commit + '..' + curr_commit],
+        capture_output=True, text=True
+    )
+    return [f for f in result.stdout.strip().splitlines() if '/TC' in f or f.startswith('TC')]
+
+added = get_tc_files('A')
+modified = get_tc_files('M')
+
 data = {
-    'prev_commit': '${prevCommit}',
-    'curr_commit': '\${GIT_COMMIT:-HEAD}',
+    'prev_commit': prev_commit,
+    'curr_commit': curr_commit,
     'tc_files_added': len(added),
     'tc_files_modified': len(modified),
     'added_files': added,
     'modified_files': modified
 }
-with open('\${REPORT_OUTPUT_DIR}/git_diff.json', 'w') as f:
+with open(output_path, 'w') as f:
     json.dump(data, f, indent=2)
-print('Git diff JSON generated')
-"
+print('Git diff JSON: {} TC added, {} TC modified'.format(len(added), len(modified)))
+" "$PREV_COMMIT" "$CURR_COMMIT" "${REPORT_OUTPUT_DIR}/git_diff.json"
+
+                GIT_DIFF_ARG="--git-diff-json ${REPORT_OUTPUT_DIR}/git_diff.json"
             fi
 
             source /home/deviceqa/DTA_venv/nd_test_bot_env/bin/activate
-            pip install -r ${reportAnalysisPath}/requirements.txt
+            pip install -r ''' + reportAnalysisPath + '''/requirements.txt
 
-            cd ${reportAnalysisPath}
-            python3 analyze.py \\
-                --previous "\${PREVIOUS_REPORT_URL}" \\
-                --current "\${CURRENT_REPORT_URL}" \\
-                --output-html "\${REPORT_OUTPUT_DIR}/comparison_report.html" \\
-                --output-json "\${REPORT_OUTPUT_DIR}/comparison_report.json" \\
-                ${prevCommit?.trim() ? '--git-diff-json "\${REPORT_OUTPUT_DIR}/git_diff.json"' : ''}
-        """
+            cd ''' + reportAnalysisPath + '''
+            python3 analyze.py \
+                --previous "${PREVIOUS_REPORT_URL}" \
+                --current "${CURRENT_REPORT_URL}" \
+                --output-html "${REPORT_OUTPUT_DIR}/comparison_report.html" \
+                --output-json "${REPORT_OUTPUT_DIR}/comparison_report.json" \
+                $GIT_DIFF_ARG
+        '''
     }
 
     if (env.SKIP_ANALYSIS == 'true') {
