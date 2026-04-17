@@ -27,6 +27,7 @@ Config JSON format:
 Example:
     python multi_analyze.py --config release_config.json --output-dir reports/
 """
+from __future__ import annotations
 
 import argparse
 import json
