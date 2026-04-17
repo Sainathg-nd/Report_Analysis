@@ -1,6 +1,7 @@
 """
 Formats the comparison results into readable output (console + HTML report).
 """
+from __future__ import annotations
 
 import os
 import json

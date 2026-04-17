@@ -4,6 +4,7 @@ Fetches DAST report data from Jenkins report URLs.
 Parses the static/scr.js JavaScript file from the published HTML report
 to extract test case data, device info, and output metadata.
 """
+from __future__ import annotations
 
 import re
 import json

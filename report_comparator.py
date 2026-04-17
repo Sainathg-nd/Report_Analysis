@@ -3,6 +3,7 @@ Compares two DAST reports and identifies new, common, and resolved failures.
 
 Also classifies failures by failure reason and service name.
 """
+from __future__ import annotations
 
 from collections import defaultdict
 
